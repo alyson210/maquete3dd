@@ -1,0 +1,1848 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Maquete 3D Interativa — Sertão Maranhense</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+    <!-- Three.js & OrbitControls (r128) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            user-select: none;
+        }
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+
+        /* Custom Glassmorphism */
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.72);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        }
+        .glass-light {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+        }
+
+        /* 3D Floating Hotspot Pins */
+        .hotspot-marker {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            pointer-events: auto;
+            cursor: pointer;
+            transition: opacity 0.25s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .hotspot-marker.hidden-behind {
+            opacity: 0.15;
+            pointer-events: none;
+        }
+        .hotspot-pulse {
+            position: absolute;
+            inset: -6px;
+            border-radius: 9999px;
+            background: rgba(245, 158, 11, 0.45);
+            animation: pulseRing 2.2s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+        }
+        @keyframes pulseRing {
+            0% { transform: scale(0.8); opacity: 0.9; }
+            70% { transform: scale(1.7); opacity: 0; }
+            100% { transform: scale(1.7); opacity: 0; }
+        }
+        .hotspot-btn {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px 5px 6px;
+            border-radius: 9999px;
+            background: rgba(15, 23, 42, 0.88);
+            border: 1.5px solid #fbbf24;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+            transition: all 0.2s ease;
+        }
+        .hotspot-marker:hover .hotspot-btn,
+        .hotspot-marker.active .hotspot-btn {
+            background: #f59e0b;
+            color: #0f172a;
+            border-color: #ffffff;
+            transform: scale(1.08);
+        }
+        .hotspot-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 9999px;
+            background: #f59e0b;
+            color: #0f172a;
+            font-weight: 800;
+            font-size: 11px;
+        }
+        .hotspot-marker:hover .hotspot-num,
+        .hotspot-marker.active .hotspot-num {
+            background: #0f172a;
+            color: #fbbf24;
+        }
+
+        /* Custom Scrollbar */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Loader spinner */
+        .loader-ring {
+            border: 3px solid rgba(251, 191, 36, 0.2);
+            border-top-color: #fbbf24;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-white antialiased">
+
+    <!-- Loading Overlay -->
+    <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 transition-opacity duration-700">
+        <div class="loader-ring mb-4"></div>
+        <h2 class="text-lg font-bold tracking-wide text-amber-400">Construindo Maquete 3D...</h2>
+        <p class="text-xs text-slate-400 mt-1">Sertão Maranhense • Inovação que Floresce no Semiárido</p>
+    </div>
+
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Floating 3D Hotspots Layer -->
+    <div id="hotspots-layer" class="fixed inset-0 pointer-events-none z-10 overflow-hidden"></div>
+
+    <!-- Top Header & Controls Bar -->
+    <header class="fixed top-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <!-- Brand / Title Card -->
+        <div class="glass-panel rounded-2xl p-3 sm:px-4 sm:py-3 pointer-events-auto max-w-md flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-amber-500 flex items-center justify-center shadow-lg shrink-0">
+                    <!-- Leaf + Sun SVG Icon -->
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30">Maquete Interativa 3D</span>
+                    </div>
+                    <h1 class="text-base sm:text-lg font-extrabold tracking-tight text-white leading-tight mt-0.5" style="font-family: 'Plus Jakarta Sans', sans-serif;">
+                        Sertão Maranhense
+                    </h1>
+                    <p class="text-[11px] sm:text-xs text-slate-300 truncate">“Inovação que Floresce no Semiárido”</p>
+                </div>
+            </div>
+
+            <!-- Info Modal Trigger Button -->
+            <button id="btn-project-info" title="Sobre o Projeto" class="p-2.5 rounded-xl bg-white/10 hover:bg-amber-500 hover:text-slate-950 text-amber-300 transition-colors shrink-0">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Right Action Controls (Lighting, Auto-rotate, Pins) -->
+        <div class="flex flex-wrap items-center gap-2 pointer-events-auto">
+            <!-- Day / Night Exhibition Toggle -->
+            <button id="btn-toggle-lighting" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition-all px-3.5 py-2.5 rounded-xl flex items-center gap-2 text-xs sm:text-sm font-semibold text-amber-300 border border-amber-400/30">
+                <span id="lighting-icon">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                    </svg>
+                </span>
+                <span id="lighting-label">Modo Noturno (LEDs)</span>
+            </button>
+
+            <!-- Auto-Rotate Toggle -->
+            <button id="btn-auto-rotate" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition-all px-3.5 py-2.5 rounded-xl flex items-center gap-2 text-xs sm:text-sm font-semibold text-slate-200">
+                <svg id="rotate-icon" class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span class="hidden sm:inline">Girar Maquete</span>
+            </button>
+
+            <!-- Toggle Pins Visibility -->
+            <button id="btn-toggle-pins" class="glass-panel hover:bg-slate-800/90 active:scale-95 transition-all p-2.5 rounded-xl text-slate-200" title="Mostrar/Ocultar Marcadores">
+                <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Camera Quick Presets Bar (Left Side on Desktop, Top-Subbar on Mobile) -->
+    <nav class="fixed left-3 sm:left-4 top-24 md:top-28 z-20 flex md:flex-col gap-1.5 overflow-x-auto max-w-[calc(100vw-24px)] no-scrollbar pointer-events-auto">
+        <button data-preset="overview" class="cam-preset-btn active glass-panel px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center gap-2 transition-all border-amber-400/60 bg-amber-500/20 text-amber-200 whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            Visão Geral
+        </button>
+        <button data-preset="agrotech" class="cam-preset-btn glass-panel px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center gap-2 text-slate-200 hover:bg-white/10 transition-all whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Estufa AgroTech
+        </button>
+        <button data-preset="solar" class="cam-preset-btn glass-panel px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center gap-2 text-slate-200 hover:bg-white/10 transition-all whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+            Energia & Seca
+        </button>
+        <button data-preset="river" class="cam-preset-btn glass-panel px-3 py-2 rounded-xl text-xs font-semibold text-left flex items-center gap-2 text-slate-200 hover:bg-white/10 transition-all whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+            Rio & Pecuária
+        </button>
+    </nav>
+
+    <!-- Interactive Zone Detail Card (Drawer / Modal on Hotspot or Pillar Click) -->
+    <aside id="detail-card" class="fixed right-3 sm:right-5 top-36 md:top-24 z-30 w-[calc(100vw-24px)] sm:w-96 glass-panel rounded-2xl p-4 sm:p-5 transition-all duration-300 translate-x-[120%] opacity-0 pointer-events-none">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <span id="detail-badge" class="inline-block text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 mb-1.5">
+                    Setor da Maquete
+                </span>
+                <h2 id="detail-title" class="text-lg font-extrabold text-white leading-snug" style="font-family: 'Plus Jakarta Sans', sans-serif;">
+                    AgroTech Sertão
+                </h2>
+            </div>
+            <button id="btn-close-detail" class="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <p id="detail-subtitle" class="text-xs font-medium text-amber-300 mt-1">
+            Produzindo com o Semiárido
+        </p>
+
+        <div class="h-px bg-white/10 my-3"></div>
+
+        <p id="detail-description" class="text-xs sm:text-sm text-slate-200 leading-relaxed">
+            Descrição detalhada do setor selecionado.
+        </p>
+
+        <ul id="detail-bullets" class="mt-3 space-y-1.5 text-xs text-slate-300">
+            <!-- Populated dynamically -->
+        </ul>
+
+        <div class="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+            <span class="text-[11px] text-slate-400">Arraste para girar • Pinça/Scroll para zoom</span>
+            <button id="btn-reset-view" class="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1">
+                Voltar ao Geral &rarr;
+            </button>
+        </div>
+    </aside>
+
+    <!-- Full Project Overview Modal ("O Projeto" & "Como funciona?") -->
+    <div id="project-modal" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm hidden">
+        <div class="glass-panel rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 sm:p-7 border border-amber-400/30 shadow-2xl">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <span class="text-xs font-bold uppercase tracking-wider text-amber-400">Painel Explicativo da Maquete</span>
+                    <h2 class="text-xl sm:text-2xl font-extrabold text-white mt-0.5" style="font-family: 'Plus Jakarta Sans', sans-serif;">
+                        Sertão Maranhense
+                    </h2>
+                    <p class="text-sm text-emerald-300 font-medium">“Inovação que Floresce no Semiárido” — Desenvolvimento sustentável para todos</p>
+                </div>
+                <button id="btn-close-modal" class="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-5">
+                <!-- O Projeto -->
+                <div class="rounded-2xl bg-amber-950/40 border border-amber-500/30 p-4">
+                    <h3 class="text-base font-bold text-amber-300 flex items-center gap-2">
+                        <span>🌱</span> O Projeto
+                    </h3>
+                    <p class="text-xs sm:text-sm text-slate-200 mt-2 leading-relaxed">
+                        Um modelo integrado que une <strong>tecnologia, natureza e comunidade</strong>, levando qualidade de vida, segurança alimentar e autonomia hídrica para toda a região do Sertão Maranhense.
+                    </p>
+                    <div class="mt-3 p-2.5 rounded-xl bg-black/30 text-xs text-amber-200/90 italic">
+                        “Um Sertão mais verde, justo e produtivo!”
+                    </div>
+                </div>
+
+                <!-- Como Funciona? -->
+                <div class="rounded-2xl bg-emerald-950/40 border border-emerald-500/30 p-4">
+                    <h3 class="text-base font-bold text-emerald-300 flex items-center gap-2">
+                        <span>⚙️</span> Como funciona?
+                    </h3>
+                    <ul class="mt-2 space-y-2 text-xs text-slate-200">
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold">✔</span>
+                            <span><strong>Energia Solar:</strong> luz e bombeamento limpo para todos.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold">✔</span>
+                            <span><strong>Horta Hidropônica:</strong> alimento fresco o ano todo com economia de até 80% de água.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold">✔</span>
+                            <span><strong>Captação de Água da Chuva:</strong> irrigação inteligente e consumo humano.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold">✔</span>
+                            <span><strong>Agricultura Familiar:</strong> geração de renda e sustentabilidade no campo.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-emerald-400 font-bold">✔</span>
+                            <span><strong>Educação Ambiental:</strong> conhecimento comunitário para preservar o Cerrado e os rios.</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="mt-5 flex justify-end">
+                <button id="btn-explore-now" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-emerald-500 text-slate-950 font-bold text-sm shadow-lg hover:opacity-95 transition">
+                    Explorar Maquete 3D
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom 6 Pillars Interactive Bar -->
+    <footer class="fixed bottom-0 left-0 right-0 z-20 p-3 sm:p-4 pointer-events-none flex flex-col items-center">
+        <div class="glass-panel rounded-2xl p-2 pointer-events-auto max-w-4xl w-full">
+            <div class="flex items-center justify-between px-2 pb-1.5 border-b border-white/10 mb-1.5">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                    Um Sertão mais verde, justo e produtivo!
+                </span>
+                <span class="text-[10px] text-slate-400 hidden sm:inline">Clique nos pilares para focar na maquete</span>
+            </div>
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                <button data-pillar="agua" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-sky-500/25 border border-white/10 hover:border-sky-400/50 transition-all">
+                    <span class="text-base sm:text-lg">💧</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Água para todos</span>
+                </button>
+                <button data-pillar="alimento" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-emerald-500/25 border border-white/10 hover:border-emerald-400/50 transition-all">
+                    <span class="text-base sm:text-lg">🌱</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Alimento no campo</span>
+                </button>
+                <button data-pillar="energia" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-amber-500/25 border border-white/10 hover:border-amber-400/50 transition-all">
+                    <span class="text-base sm:text-lg">⚡</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Energia limpa</span>
+                </button>
+                <button data-pillar="educacao" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-indigo-500/25 border border-white/10 hover:border-indigo-400/50 transition-all">
+                    <span class="text-base sm:text-lg">📖</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Educação Ambiental</span>
+                </button>
+                <button data-pillar="cerrado" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-lime-500/25 border border-white/10 hover:border-lime-400/50 transition-all">
+                    <span class="text-base sm:text-lg">🌳</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Preservação do Cerrado</span>
+                </button>
+                <button data-pillar="comunidade" class="pillar-btn group flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl bg-white/5 hover:bg-orange-500/25 border border-white/10 hover:border-orange-400/50 transition-all">
+                    <span class="text-base sm:text-lg">🤝</span>
+                    <span class="text-[10px] sm:text-[11px] font-semibold text-slate-200 group-hover:text-white text-center leading-tight mt-0.5">Comunidades mais fortes</span>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Main 3D Application Script -->
+    <script>
+        // =========================================================================
+        // 1. PROJECT CONTENT DATA (Brazilian Portuguese matching the Maquette)
+        // =========================================================================
+        const ZONES_DATA = {
+            agrotech: {
+                id: 'agrotech',
+                num: '1',
+                label: 'AgroTech Sertão',
+                badge: 'Núcleo Tecnológico Central',
+                title: 'AgroTech Sertão — Estufa Geodésica',
+                subtitle: 'Produzindo com o Semiárido',
+                description: 'Cúpula geodésica transparente com estrutura metálica de alta resistência, climatização inteligente e bancadas hidropônicas iluminadas por LEDs de espectro agrícola alimentados por energia solar.',
+                bullets: [
+                    'Cultivo protegido contra evaporação excessiva e pragas.',
+                    'Produção contínua de hortaliças mesmo nos meses mais secos.',
+                    'Integração com sensores de umidade e reuso fechado de água.'
+                ],
+                pinPos: new THREE.Vector3(0, 4.7, -1.2),
+                camPos: new THREE.Vector3(0, 6.2, 8.8),
+                camTarget: new THREE.Vector3(0, 2.2, -1.2)
+            },
+            solar: {
+                id: 'solar',
+                num: '2',
+                label: 'Energia Solar & Moinho',
+                badge: 'Matriz Energética Limpa',
+                title: 'Energia Solar & Bombeamento Eólico',
+                subtitle: 'Energia solar: luz e água para todos',
+                description: 'Conjunto de painéis fotovoltaicos inclinados para máxima captação da intensa radiação solar do Sertão Maranhense, aliado ao tradicional catavento metálico para bombeamento de água.',
+                bullets: [
+                    'Alimenta toda a estufa geodésica, iluminação LED e sistemas de irrigação.',
+                    'Reduz custos operacionais da agricultura familiar.',
+                    'Bombeamento sustentável de poços e cisternas comunitárias.'
+                ],
+                pinPos: new THREE.Vector3(-5.8, 3.3, -1.6),
+                camPos: new THREE.Vector3(-8.5, 5.8, 6.5),
+                camTarget: new THREE.Vector3(-5.5, 1.8, -1.5)
+            },
+            seca: {
+                id: 'seca',
+                num: '3',
+                label: 'Combate à Seca',
+                badge: 'Transição Agroecológica',
+                title: 'Combate à Seca',
+                subtitle: 'Com tecnologia e preservação',
+                description: 'Representação visual do contraste entre o solo castigado pela estiagem e a área recuperada através de manejo sustentável, captação de água da chuva e reflorestamento do Cerrado.',
+                bullets: [
+                    'Recuperação de solos degradados e controle de erosão.',
+                    'Captação e armazenamento estratégico da água das chuvas.',
+                    'Convivência inteligente e produtiva com o clima semiárido.'
+                ],
+                pinPos: new THREE.Vector3(-7.6, 2.4, 1.8),
+                camPos: new THREE.Vector3(-10.5, 5.2, 7.5),
+                camTarget: new THREE.Vector3(-6.8, 1.2, 1.5)
+            },
+            horta: {
+                id: 'horta',
+                num: '4',
+                label: 'Produção de Alimentos',
+                badge: 'Segurança Alimentar',
+                title: 'Produção de Alimentos',
+                subtitle: 'Horta comunitária e agricultura familiar',
+                description: 'Canteiros elevados cercados em madeira com cultivo diversificado de hortaliças orgânicas irrigadas por gotejamento de alta eficiência.',
+                bullets: [
+                    'Alimento saudável na mesa das famílias e escolas locais.',
+                    'Geração de excedente para comercialização nas feiras da região.',
+                    'Economia hídrica com irrigação localizada na raiz.'
+                ],
+                pinPos: new THREE.Vector3(-4.2, 1.8, 3.6),
+                camPos: new THREE.Vector3(-5.5, 4.8, 9.5),
+                camTarget: new THREE.Vector3(-4.0, 0.8, 3.2)
+            },
+            educacao: {
+                id: 'educacao',
+                num: '5',
+                label: 'Educação Ambiental',
+                badge: 'Conhecimento & Comunidade',
+                title: 'Centro de Educação Ambiental',
+                subtitle: 'Conhecimento para preservar',
+                description: 'Espaço comunitário de formação, oficinas práticas e troca de saberes entre jovens, agricultores e pesquisadores sobre sustentabilidade no Sertão Maranhense.',
+                bullets: [
+                    'Capacitação em técnicas de agroecologia e energia renovável.',
+                    'Valorização da cultura sertaneja e protagonismo juvenil.',
+                    'Ponto de encontro e fortalecimento das associações locais.'
+                ],
+                pinPos: new THREE.Vector3(4.5, 3.2, -1.2),
+                camPos: new THREE.Vector3(6.8, 5.5, 6.8),
+                camTarget: new THREE.Vector3(4.5, 1.6, -1.0)
+            },
+            pecuaria: {
+                id: 'pecuaria',
+                num: '6',
+                label: 'Pecuária Sustentável',
+                badge: 'Manejo Integrado',
+                title: 'Pecuária Sustentável',
+                subtitle: 'Criação responsável e pastejo rotacionado',
+                description: 'Área cercada com manejo rotacionado de pastagem, sombra de árvores nativas e acesso controlado à água limpa, garantindo bem-estar animal e preservação do solo.',
+                bullets: [
+                    'Evita a compactação e degradação do pasto.',
+                    'Integração lavoura-pecuária-floresta (ILPF).',
+                    'Produção leiteira com menor pegada hídrica.'
+                ],
+                pinPos: new THREE.Vector3(4.2, 2.0, 2.6),
+                camPos: new THREE.Vector3(5.8, 4.8, 8.8),
+                camTarget: new THREE.Vector3(4.2, 1.0, 2.4)
+            },
+            rios: {
+                id: 'rios',
+                num: '7',
+                label: 'Preservação dos Rios',
+                badge: 'Recursos Hídricos',
+                title: 'Preservação dos Rios e Matas Ciliares',
+                subtitle: 'Água viva correndo pelo Sertão',
+                description: 'Curso d’água protegido por mata ciliar densa, pedras naturais e ponte ecológica em madeira, simbolizando a recuperação das nascentes e riachos maranhenses.',
+                bullets: [
+                    'Proteção das margens contra o assoreamento.',
+                    'Manutenção da biodiversidade aquática e terrestre.',
+                    'Garantia de água limpa para as futuras gerações.'
+                ],
+                pinPos: new THREE.Vector3(7.4, 2.0, 3.4),
+                camPos: new THREE.Vector3(10.2, 5.2, 8.8),
+                camTarget: new THREE.Vector3(7.0, 0.8, 3.0)
+            }
+        };
+
+        const PILLAR_MAP = {
+            agua: 'rios',
+            alimento: 'horta',
+            energia: 'solar',
+            educacao: 'educacao',
+            cerrado: 'seca',
+            comunidade: 'agrotech'
+        };
+
+        const CAMERA_PRESETS = {
+            overview: { pos: new THREE.Vector3(0, 9.8, 17.5), target: new THREE.Vector3(0, 1.6, 0) },
+            agrotech: { pos: ZONES_DATA.agrotech.camPos, target: ZONES_DATA.agrotech.camTarget },
+            solar: { pos: new THREE.Vector3(-7.8, 5.6, 7.6), target: new THREE.Vector3(-5.8, 1.6, 0.2) },
+            river: { pos: new THREE.Vector3(7.6, 5.4, 8.2), target: new THREE.Vector3(5.5, 1.2, 1.5) }
+        };
+
+        // =========================================================================
+        // 2. PROCEDURAL CANVAS TEXTURES (Signs, Soil, Cracked Earth, Road, Water)
+        // =========================================================================
+        function createWoodenSignTexture(lines, options = {}) {
+            const width = options.width || 512;
+            const height = options.height || 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            // Wood plank background gradient
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, options.bgTop || '#d99b52');
+            grad.addColorStop(0.5, options.bgMid || '#c4833b');
+            grad.addColorStop(1, options.bgBot || '#a86928');
+            ctx.fillStyle = grad;
+
+            // Rounded rectangle
+            const r = options.radius || 22;
+            ctx.beginPath();
+            ctx.moveTo(r, 0);
+            ctx.lineTo(width - r, 0);
+            ctx.quadraticCurveTo(width, 0, width, r);
+            ctx.lineTo(width, height - r);
+            ctx.quadraticCurveTo(width, height, width - r, height);
+            ctx.lineTo(r, height);
+            ctx.quadraticCurveTo(0, height, 0, height - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // Wood grain lines
+            ctx.strokeStyle = 'rgba(72, 38, 10, 0.22)';
+            ctx.lineWidth = 2;
+            for (let y = 18; y < height; y += 26) {
+                ctx.beginPath();
+                ctx.moveTo(8, y);
+                ctx.bezierCurveTo(width * 0.3, y + 4, width * 0.7, y - 4, width - 8, y);
+                ctx.stroke();
+            }
+
+            // Dark wooden border
+            ctx.strokeStyle = '#5c3310';
+            ctx.lineWidth = 8;
+            ctx.stroke();
+
+            // Text rendering
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            lines.forEach(line => {
+                ctx.font = line.font || 'bold 34px "Plus Jakarta Sans", sans-serif';
+                ctx.fillStyle = line.color || '#1f1206';
+                ctx.fillText(line.text, width / 2, line.y);
+            });
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 4;
+            return tex;
+        }
+
+        function createCrackedEarthTexture() {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Base dry ochre/clay color
+            ctx.fillStyle = '#c88a4b';
+            ctx.fillRect(0, 0, size, size);
+
+            // Subtle noise speckles
+            for (let i = 0; i < 3000; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? 'rgba(92, 52, 18, 0.14)' : 'rgba(245, 200, 140, 0.14)';
+                ctx.fillRect(Math.random() * size, Math.random() * size, 3, 3);
+            }
+
+            // Voronoi-like mud cracks
+            const pts = [];
+            const grid = 7;
+            const step = size / grid;
+            for (let gx = 0; gx <= grid; gx++) {
+                for (let gy = 0; gy <= grid; gy++) {
+                    pts.push({
+                        x: gx * step + (Math.random() - 0.5) * step * 0.65,
+                        y: gy * step + (Math.random() - 0.5) * step * 0.65
+                    });
+                }
+            }
+
+            ctx.strokeStyle = '#4a280d';
+            ctx.lineWidth = 3.5;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < pts.length; i++) {
+                for (let j = i + 1; j < pts.length; j++) {
+                    const dx = pts[i].x - pts[j].x;
+                    const dy = pts[i].y - pts[j].y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < step * 1.25) {
+                        ctx.beginPath();
+                        ctx.moveTo(pts[i].x, pts[i].y);
+                        const mx = (pts[i].x + pts[j].x) / 2 + (Math.random() - 0.5) * 10;
+                        const my = (pts[i].y + pts[j].y) / 2 + (Math.random() - 0.5) * 10;
+                        ctx.lineTo(mx, my);
+                        ctx.lineTo(pts[j].x, pts[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(2, 2);
+            return tex;
+        }
+
+        function createGrassTexture() {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#4e8c32';
+            ctx.fillRect(0, 0, size, size);
+
+            const shades = ['#3b7023', '#61a33e', '#76b84d', '#447d2a'];
+            for (let i = 0; i < 12000; i++) {
+                ctx.fillStyle = shades[Math.floor(Math.random() * shades.length)];
+                ctx.fillRect(Math.random() * size, Math.random() * size, 3, 6);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(4, 3);
+            return tex;
+        }
+
+        function createSolarCellTexture() {
+            const size = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, size, size);
+            grad.addColorStop(0, '#103b8c');
+            grad.addColorStop(0.5, '#1d56b8');
+            grad.addColorStop(1, '#0d2e6e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+
+            // Grid lines
+            ctx.strokeStyle = 'rgba(186, 230, 253, 0.55)';
+            ctx.lineWidth = 2;
+            const cols = 4;
+            const rows = 6;
+            for (let c = 1; c < cols; c++) {
+                ctx.beginPath();
+                ctx.moveTo((size / cols) * c, 0);
+                ctx.lineTo((size / cols) * c, size);
+                ctx.stroke();
+            }
+            for (let r = 1; r < rows; r++) {
+                ctx.beginPath();
+                ctx.moveTo(0, (size / rows) * r);
+                ctx.lineTo(size, (size / rows) * r);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            return tex;
+        }
+
+        function createRoadTexture() {
+            const w = 256, h = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            // Asphalt
+            ctx.fillStyle = '#333842';
+            ctx.fillRect(0, 0, w, h);
+
+            // Side white borders
+            ctx.fillStyle = '#e5e7eb';
+            ctx.fillRect(14, 0, 8, h);
+            ctx.fillRect(w - 22, 0, 8, h);
+
+            // Dashed center line
+            ctx.fillStyle = '#ffffff';
+            for (let y = 20; y < h; y += 64) {
+                ctx.fillRect(w / 2 - 5, y, 10, 36);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createSoilSideTexture() {
+            const w = 512, h = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, '#a3622d');
+            grad.addColorStop(0.5, '#8c4f20');
+            grad.addColorStop(1, '#6b3812');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            // Strata layers and pebbles
+            for (let i = 0; i < 900; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? 'rgba(56, 26, 6, 0.25)' : 'rgba(214, 152, 92, 0.2)';
+                ctx.beginPath();
+                ctx.arc(Math.random() * w, Math.random() * h, 1 + Math.random() * 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.repeat.set(3, 1);
+            return tex;
+        }
+
+        // =========================================================================
+        // 3. THREE.JS SCENE SETUP & LIGHTING
+        // =========================================================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1b2230);
+        scene.fog = new THREE.FogExp2(0x1b2230, 0.014);
+
+        const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 150);
+        camera.position.copy(CAMERA_PRESETS.overview.pos);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.12;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI * 0.47; // Prevent going underneath the table
+        controls.minDistance = 4.5;
+        controls.maxDistance = 28;
+        controls.target.copy(CAMERA_PRESETS.overview.target);
+
+        // Lights
+        const hemiLight = new THREE.HemisphereLight(0xfff8eb, 0x4a3520, 0.85);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff2dc, 1.35);
+        dirLight.position.set(10, 18, 12);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 2;
+        dirLight.shadow.camera.far = 45;
+        const d = 13;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.bias = -0.0005;
+        scene.add(dirLight);
+
+        // Warm interior dome point light
+        const domeLight = new THREE.PointLight(0xffb74d, 1.6, 11);
+        domeLight.position.set(0, 2.5, -1.2);
+        scene.add(domeLight);
+
+        // Warm house light
+        const houseLight = new THREE.PointLight(0xffca6b, 0.9, 6);
+        houseLight.position.set(4.5, 1.8, -1.0);
+        scene.add(houseLight);
+
+        // =========================================================================
+        // 4. BUILDING THE 3D DIORAMA MAQUETTE
+        // =========================================================================
+        const maquetteGroup = new THREE.Group();
+        scene.add(maquetteGroup);
+
+        // Exhibition Table Surface underneath the maquette
+        const tableGeo = new THREE.PlaneGeometry(90, 90);
+        const tableMat = new THREE.MeshStandardMaterial({
+            color: 0x262b36,
+            roughness: 0.85,
+            metalness: 0.05
+        });
+        const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+        tableMesh.rotation.x = -Math.PI / 2;
+        tableMesh.position.y = -0.02;
+        tableMesh.receiveShadow = true;
+        scene.add(tableMesh);
+
+        // --- A. Earthen Plinth Base (18 x 11 x 1.2) ---
+        const plinthW = 18.4;
+        const plinthD = 11.2;
+        const plinthH = 1.25;
+
+        const soilSideTex = createSoilSideTexture();
+        const grassTex = createGrassTexture();
+
+        const plinthMaterials = [
+            new THREE.MeshStandardMaterial({ map: soilSideTex, roughness: 0.9 }), // right
+            new THREE.MeshStandardMaterial({ map: soilSideTex, roughness: 0.9 }), // left
+            new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.85 }),   // top
+            new THREE.MeshStandardMaterial({ color: 0x4a2a12, roughness: 1.0 }),  // bottom
+            new THREE.MeshStandardMaterial({ map: soilSideTex, roughness: 0.9 }), // front
+            new THREE.MeshStandardMaterial({ map: soilSideTex, roughness: 0.9 })  // back
+        ];
+
+        const plinthMesh = new THREE.Mesh(new THREE.BoxGeometry(plinthW, plinthH, plinthD), plinthMaterials);
+        plinthMesh.position.y = plinthH / 2;
+        plinthMesh.castShadow = true;
+        plinthMesh.receiveShadow = true;
+        maquetteGroup.add(plinthMesh);
+
+        // White architectural trim border at the very bottom
+        const baseTrim = new THREE.Mesh(
+            new THREE.BoxGeometry(plinthW + 0.25, 0.14, plinthD + 0.25),
+            new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.5 })
+        );
+        baseTrim.position.y = 0.07;
+        baseTrim.receiveShadow = true;
+        maquetteGroup.add(baseTrim);
+
+        // --- B. Left Dry Zone (Combate à Seca) ---
+        const crackedTex = createCrackedEarthTexture();
+        const dryPatchGeo = new THREE.CylinderGeometry(3.4, 3.8, 0.08, 24);
+        const dryPatchMat = new THREE.MeshStandardMaterial({ map: crackedTex, roughness: 0.95 });
+        const dryPatch = new THREE.Mesh(dryPatchGeo, dryPatchMat);
+        dryPatch.position.set(-6.4, plinthH + 0.03, 1.3);
+        dryPatch.scale.set(0.85, 1, 1.15);
+        dryPatch.receiveShadow = true;
+        maquetteGroup.add(dryPatch);
+
+        // Dry elevated mound behind solar panels
+        const dryMound = new THREE.Mesh(
+            new THREE.SphereGeometry(2.1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5),
+            new THREE.MeshStandardMaterial({ map: crackedTex, roughness: 0.95 })
+        );
+        dryMound.scale.set(1.1, 0.45, 0.9);
+        dryMound.position.set(-7.1, plinthH, -1.6);
+        dryMound.receiveShadow = true;
+        maquetteGroup.add(dryMound);
+
+        // Sculpted Leafless Dry Tree
+        function createDryTree(x, y, z) {
+            const tree = new THREE.Group();
+            const barkMat = new THREE.MeshStandardMaterial({ color: 0x3b2313, roughness: 0.95 });
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.24, 1.5, 8), barkMat);
+            trunk.position.y = 0.75;
+            trunk.castShadow = true;
+            tree.add(trunk);
+
+            const branchConfigs = [
+                { pos: [-0.25, 1.45, 0.1], rot: [0.2, 0, 0.65], len: 1.0 },
+                { pos: [0.28, 1.5, -0.05], rot: [-0.15, 0, -0.6], len: 1.05 },
+                { pos: [0.0, 1.65, 0.22], rot: [0.55, 0, 0.1], len: 0.85 },
+                { pos: [-0.55, 1.85, 0.18], rot: [0.1, 0, 1.05], len: 0.65 },
+                { pos: [0.58, 1.9, -0.12], rot: [-0.1, 0, -1.0], len: 0.65 }
+            ];
+            branchConfigs.forEach(b => {
+                const br = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.08, b.len, 6), barkMat);
+                br.position.set(...b.pos);
+                br.rotation.set(...b.rot);
+                br.castShadow = true;
+                tree.add(br);
+            });
+            tree.position.set(x, y, z);
+            return tree;
+        }
+        maquetteGroup.add(createDryTree(-7.6, plinthH + 0.55, -1.4));
+
+        // --- C. Metallic Windmill Tower with Rotating Blades ---
+        const windmillGroup = new THREE.Group();
+        windmillGroup.position.set(-4.3, plinthH, -3.2);
+        maquetteGroup.add(windmillGroup);
+
+        const steelMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.75, roughness: 0.3 });
+        // 4 angled legs
+        const legOffsets = [[-0.35, -0.35], [0.35, -0.35], [-0.35, 0.35], [0.35, 0.35]];
+        legOffsets.forEach(([lx, lz]) => {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.04, 3.6, 6), steelMat);
+            leg.position.set(lx * 0.65, 1.8, lz * 0.65);
+            leg.rotation.z = lx * 0.16;
+            leg.rotation.x = -lz * 0.16;
+            leg.castShadow = true;
+            windmillGroup.add(leg);
+        });
+        // Horizontal crossbars
+        for (let h = 0.7; h <= 3.0; h += 0.75) {
+            const scale = 1 - (h / 5.2);
+            const ring = new THREE.Mesh(new THREE.BoxGeometry(0.75 * scale, 0.03, 0.75 * scale), steelMat);
+            ring.position.y = h;
+            windmillGroup.add(ring);
+        }
+        // Tail vane
+        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.45, 0.75), steelMat);
+        tail.position.set(0, 3.65, -0.45);
+        windmillGroup.add(tail);
+
+        // Rotating rotor hub + 12 blades
+        const rotorGroup = new THREE.Group();
+        rotorGroup.position.set(0, 3.65, 0.25);
+        const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 12), steelMat);
+        hub.rotation.x = Math.PI / 2;
+        rotorGroup.add(hub);
+
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.72, 0.015), steelMat);
+            blade.position.set(Math.cos(angle) * 0.45, Math.sin(angle) * 0.45, 0);
+            blade.rotation.z = angle + Math.PI / 2;
+            blade.rotation.y = 0.35; // Pitch angle
+            rotorGroup.add(blade);
+        }
+        windmillGroup.add(rotorGroup);
+
+        // --- D. Solar Panels Array ---
+        const solarTex = createSolarCellTexture();
+        const solarPanelMat = new THREE.MeshStandardMaterial({
+            map: solarTex,
+            roughness: 0.2,
+            metalness: 0.45
+        });
+        const frameMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.25 });
+
+        function createSolarPanel(x, y, z, scale = 1) {
+            const group = new THREE.Group();
+            // Support post
+            const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.95 * scale, 8), frameMat);
+            post.position.y = 0.45 * scale;
+            post.castShadow = true;
+            group.add(post);
+
+            // Panel frame + photovoltaic surface
+            const board = new THREE.Group();
+            board.position.y = 0.92 * scale;
+            board.rotation.x = 0.58; // Tilted toward viewer/sun
+
+            const frame = new THREE.Mesh(new THREE.BoxGeometry(1.45 * scale, 0.06, 1.05 * scale), frameMat);
+            frame.castShadow = true;
+            board.add(frame);
+
+            const face = new THREE.Mesh(new THREE.PlaneGeometry(1.37 * scale, 0.97 * scale), solarPanelMat);
+            face.rotation.x = -Math.PI / 2;
+            face.position.y = 0.032;
+            board.add(face);
+
+            group.add(board);
+            group.position.set(x, y, z);
+            return group;
+        }
+        maquetteGroup.add(createSolarPanel(-6.3, plinthH, -0.35, 1.0));
+        maquetteGroup.add(createSolarPanel(-4.75, plinthH, -0.35, 1.0));
+        maquetteGroup.add(createSolarPanel(-3.45, plinthH, -0.45, 0.8));
+
+        // --- E. Center Hero: AgroTech Sertão Geodesic Dome Greenhouse ---
+        const domeGroup = new THREE.Group();
+        domeGroup.position.set(0, plinthH, -1.35);
+        maquetteGroup.add(domeGroup);
+
+        const domeRadius = 2.75;
+        // Circular stone/concrete foundation wall
+        const domeBase = new THREE.Mesh(
+            new THREE.CylinderGeometry(domeRadius + 0.08, domeRadius + 0.14, 0.35, 32),
+            new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.8 })
+        );
+        domeBase.position.y = 0.175;
+        domeBase.receiveShadow = true;
+        domeBase.castShadow = true;
+        domeGroup.add(domeBase);
+
+        // Transparent Geodesic Glass Shell
+        const glassGeo = new THREE.SphereGeometry(domeRadius, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const glassMat = new THREE.MeshPhysicalMaterial({
+            color: 0xe0f2fe,
+            transparent: true,
+            opacity: 0.34,
+            roughness: 0.1,
+            metalness: 0.1,
+            reflectivity: 0.9,
+            side: THREE.DoubleSide
+        });
+        const glassDome = new THREE.Mesh(glassGeo, glassMat);
+        glassDome.position.y = 0.3;
+        domeGroup.add(glassDome);
+
+        // Geodesic Metallic Struts Wireframe
+        const wireGeo = new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(domeRadius + 0.02, 2));
+        const wireMat = new THREE.LineBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.85 });
+        const geodesicStruts = new THREE.LineSegments(wireGeo, wireMat);
+        geodesicStruts.position.y = 0.3;
+        // Clip bottom half via a clipping plane or scale trick; here we use a hemisphere geodesic mesh instead:
+        const hemiIcoGeo = new THREE.SphereGeometry(domeRadius + 0.015, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const hemiWire = new THREE.LineSegments(
+            new THREE.WireframeGeometry(hemiIcoGeo),
+            new THREE.LineBasicMaterial({ color: 0xf8fafc })
+        );
+        hemiWire.position.y = 0.3;
+        domeGroup.add(hemiWire);
+
+        // Solar Roof Cap Panels on Top of the Geodesic Dome
+        const roofSolar = new THREE.Mesh(
+            new THREE.SphereGeometry(domeRadius + 0.03, 16, 6, 0, Math.PI * 2, 0.18, 0.45),
+            new THREE.MeshStandardMaterial({
+                map: solarTex,
+                roughness: 0.25,
+                metalness: 0.5,
+                side: THREE.DoubleSide
+            })
+        );
+        roofSolar.position.y = 0.3;
+        domeGroup.add(roofSolar);
+
+        // Interior Hydroponic Plant Racks (visible through the glass)
+        const hydroMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.65 });
+        const rackMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.4 });
+        for (let r = -1.4; r <= 1.4; r += 0.7) {
+            const width = Math.sqrt(Math.max(0.2, 2.2 * 2.2 - r * r)) * 1.6;
+            const tray = new THREE.Mesh(new THREE.BoxGeometry(width, 0.14, 0.32), rackMat);
+            tray.position.set(0, 0.65, r);
+            domeGroup.add(tray);
+
+            const plants = new THREE.Mesh(new THREE.BoxGeometry(width - 0.1, 0.28, 0.26), hydroMat);
+            plants.position.set(0, 0.84, r);
+            domeGroup.add(plants);
+        }
+
+        // Front Portal Entrance + Green Leaf Emblem + Sign
+        const portal = new THREE.Mesh(
+            new THREE.BoxGeometry(1.15, 1.25, 0.65),
+            new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 })
+        );
+        portal.position.set(0, 0.625, domeRadius - 0.05);
+        portal.castShadow = true;
+        domeGroup.add(portal);
+
+        const doorGlass = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.68, 0.85),
+            new THREE.MeshStandardMaterial({ color: 0x3b2313, roughness: 0.3 })
+        );
+        doorGlass.position.set(0, 0.48, domeRadius + 0.28);
+        domeGroup.add(doorGlass);
+
+        // Green Leaf Emblem above entrance
+        const leafShape = new THREE.Shape();
+        leafShape.moveTo(0, 0);
+        leafShape.quadraticCurveTo(0.45, 0.25, 0.35, 0.75);
+        leafShape.quadraticCurveTo(-0.15, 0.65, 0, 0);
+        const leafGeo = new THREE.ExtrudeGeometry(leafShape, { depth: 0.08, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02 });
+        const leafMesh = new THREE.Mesh(leafGeo, new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.4 }));
+        leafMesh.position.set(-0.12, 1.32, domeRadius + 0.08);
+        leafMesh.rotation.z = -0.35;
+        domeGroup.add(leafMesh);
+
+        // Top Sign: "AgroTech Sertão - Produzindo com o Semiárido"
+        const agroSignTex = createWoodenSignTexture([
+            { text: 'AgroTech Sertão', y: 95, font: '800 54px "Plus Jakarta Sans", sans-serif', color: '#14532d' },
+            { text: 'Produzindo com o Semiárido', y: 168, font: '600 30px "Inter", sans-serif', color: '#1f2937' }
+        ], { bgTop: '#ffffff', bgMid: '#f8fafc', bgBot: '#e2e8f0', radius: 36 });
+
+        const agroSign = new THREE.Mesh(
+            new THREE.BoxGeometry(2.6, 0.95, 0.1),
+            new THREE.MeshStandardMaterial({ map: agroSignTex, roughness: 0.4 })
+        );
+        agroSign.position.set(0, 3.25, 0.45);
+        agroSign.castShadow = true;
+        domeGroup.add(agroSign);
+
+        // --- F. Central Paved Asphalt Road ---
+        const roadTex = createRoadTexture();
+        const roadShape = new THREE.Shape();
+        roadShape.moveTo(-0.55, 0);
+        roadShape.lineTo(0.55, 0);
+        roadShape.bezierCurveTo(0.65, 1.8, 1.35, 2.8, 1.65, 4.15);
+        roadShape.lineTo(-1.65, 4.15);
+        roadShape.bezierCurveTo(-1.35, 2.8, -0.65, 1.8, -0.55, 0);
+
+        const roadGeo = new THREE.ShapeGeometry(roadShape);
+        // Normalize UVs for road texture
+        const posAttr = roadGeo.attributes.position;
+        const uvAttr = roadGeo.attributes.uv;
+        for (let i = 0; i < posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            const y = posAttr.getY(i);
+            uvAttr.setXY(i, (x + 1.65) / 3.3, y / 4.15);
+        }
+
+        const roadMesh = new THREE.Mesh(
+            roadGeo,
+            new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.8 })
+        );
+        roadMesh.rotation.x = -Math.PI / 2;
+        roadMesh.position.set(0, plinthH + 0.02, 5.5);
+        roadMesh.receiveShadow = true;
+        maquetteGroup.add(roadMesh);
+
+        // --- G. Foreground Left: Produção de Alimentos (Fenced Vegetable Garden) ---
+        const gardenGroup = new THREE.Group();
+        gardenGroup.position.set(-4.3, plinthH, 3.3);
+        maquetteGroup.add(gardenGroup);
+
+        const woodFenceMat = new THREE.MeshStandardMaterial({ color: 0x9c622b, roughness: 0.85 });
+        const bedSoilMat = new THREE.MeshStandardMaterial({ color: 0x4a2c11, roughness: 0.95 });
+        const lettuceMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, roughness: 0.65 });
+        const darkLettuceMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.65 });
+
+        // 4 Raised Garden Beds with Rows of Lush Crops
+        for (let row = 0; row < 4; row++) {
+            const bz = -1.1 + row * 0.75;
+            const bed = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.16, 0.52), bedSoilMat);
+            bed.position.set(0, 0.08, bz);
+            bed.receiveShadow = true;
+            bed.castShadow = true;
+            gardenGroup.add(bed);
+
+            for (let col = -1.6; col <= 1.6; col += 0.4) {
+                const plant = new THREE.Mesh(
+                    new THREE.DodecahedronGeometry(0.16, 1),
+                    (row % 2 === 0) ? lettuceMat : darkLettuceMat
+                );
+                plant.scale.set(1.1, 0.75, 1.1);
+                plant.position.set(col, 0.22, bz);
+                plant.castShadow = true;
+                gardenGroup.add(plant);
+            }
+        }
+
+        // Wooden Fence Perimeter around Garden
+        function buildFenceSegment(x1, z1, x2, z2) {
+            const dist = Math.hypot(x2 - x1, z2 - z1);
+            const angle = Math.atan2(z2 - z1, x2 - x1);
+            const seg = new THREE.Group();
+            seg.position.set((x1 + x2) / 2, 0, (z1 + z2) / 2);
+            seg.rotation.y = -angle;
+
+            const rail1 = new THREE.Mesh(new THREE.BoxGeometry(dist, 0.05, 0.04), woodFenceMat);
+            rail1.position.y = 0.22;
+            const rail2 = new THREE.Mesh(new THREE.BoxGeometry(dist, 0.05, 0.04), woodFenceMat);
+            rail2.position.y = 0.42;
+            seg.add(rail1, rail2);
+
+            const steps = Math.max(2, Math.floor(dist / 0.65));
+            for (let s = 0; s <= steps; s++) {
+                const px = -dist / 2 + (s / steps) * dist;
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.54, 0.07), woodFenceMat);
+                post.position.set(px, 0.27, 0);
+                post.castShadow = true;
+                seg.add(post);
+            }
+            return seg;
+        }
+        gardenGroup.add(buildFenceSegment(-2.2, 1.6, 2.2, 1.6));
+        gardenGroup.add(buildFenceSegment(-2.2, -1.6, -2.2, 1.6));
+        gardenGroup.add(buildFenceSegment(2.2, -1.6, 2.2, 1.6));
+
+        // --- H. Right Zone: Centro de Educação Ambiental (House) ---
+        const houseGroup = new THREE.Group();
+        houseGroup.position.set(4.5, plinthH, -1.35);
+        maquetteGroup.add(houseGroup);
+
+        // Cream/whitewashed walls
+        const walls = new THREE.Mesh(
+            new THREE.BoxGeometry(2.6, 1.45, 1.85),
+            new THREE.MeshStandardMaterial({ color: 0xfef6e4, roughness: 0.75 })
+        );
+        walls.position.y = 0.725;
+        walls.castShadow = true;
+        walls.receiveShadow = true;
+        houseGroup.add(walls);
+
+        // Terracotta Pitched Roof
+        const roof = new THREE.Mesh(
+            new THREE.ConeGeometry(2.05, 0.85, 4),
+            new THREE.MeshStandardMaterial({ color: 0xd94e28, roughness: 0.7 })
+        );
+        roof.position.y = 1.85;
+        roof.rotation.y = Math.PI / 4;
+        roof.scale.set(1.12, 1, 0.85);
+        roof.castShadow = true;
+        houseGroup.add(roof);
+
+        // House Door & Windows
+        const houseDoor = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.85, 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x7c4319, roughness: 0.6 })
+        );
+        houseDoor.position.set(0.15, 0.425, 0.93);
+        houseGroup.add(houseDoor);
+
+        const winBlueMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, emissive: 0x1d4ed8, emissiveIntensity: 0.25 });
+        const win1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.08), winBlueMat);
+        win1.position.set(-0.65, 0.65, 0.93);
+        const win2 = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.42, 0.08), winBlueMat);
+        win2.position.set(0.82, 0.65, 0.93);
+        houseGroup.add(win1, win2);
+
+        // House Sign
+        const eduSignTex = createWoodenSignTexture([
+            { text: 'Centro de', y: 92, font: '800 46px "Plus Jakarta Sans", sans-serif' },
+            { text: 'Educação Ambiental', y: 162, font: '700 34px "Inter", sans-serif' }
+        ]);
+        const eduSign = new THREE.Mesh(
+            new THREE.BoxGeometry(1.75, 0.58, 0.08),
+            new THREE.MeshStandardMaterial({ map: eduSignTex })
+        );
+        eduSign.position.set(0, 1.18, 0.96);
+        houseGroup.add(eduSign);
+
+        // --- I. Sustainable Livestock Pasture & Miniature Dairy Cows ---
+        const pastureGroup = new THREE.Group();
+        pastureGroup.position.set(4.1, plinthH, 2.3);
+        maquetteGroup.add(pastureGroup);
+
+        pastureGroup.add(buildFenceSegment(-2.0, 1.4, 1.3, 1.7));
+        pastureGroup.add(buildFenceSegment(-2.0, -1.0, -2.0, 1.4));
+        pastureGroup.add(buildFenceSegment(1.3, -1.0, 1.3, 1.7));
+
+        // Miniature Black & White Dairy Cow Builder
+        function createCow(x, z, rotY) {
+            const cow = new THREE.Group();
+            const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 });
+            const blackMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 });
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.34, 0.28), whiteMat);
+            body.position.y = 0.34;
+            body.castShadow = true;
+            cow.add(body);
+
+            // Black spots
+            const spot1 = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.29), blackMat);
+            spot1.position.set(0.05, 0.38, 0);
+            const spot2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.29), blackMat);
+            spot2.position.set(-0.18, 0.32, 0);
+            cow.add(spot1, spot2);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.2), whiteMat);
+            head.position.set(0.36, 0.44, 0);
+            head.castShadow = true;
+            cow.add(head);
+
+            // 4 legs
+            [[-0.2, -0.09], [-0.2, 0.09], [0.2, -0.09], [0.2, 0.09]].forEach(([lx, lz]) => {
+                const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.06), whiteMat);
+                leg.position.set(lx, 0.11, lz);
+                cow.add(leg);
+            });
+
+            cow.position.set(x, 0, z);
+            cow.rotation.y = rotY;
+            return cow;
+        }
+        pastureGroup.add(createCow(-0.75, 0.55, 0.4));
+        pastureGroup.add(createCow(0.35, -0.35, -0.6));
+        pastureGroup.add(createCow(1.25, -0.25, -0.3));
+
+        // --- J. Far Right: Winding River, Rocks & Arched Wooden Bridge ---
+        const riverShape = new THREE.Shape();
+        riverShape.moveTo(6.3, -4.8);
+        riverShape.bezierCurveTo(7.4, -2.5, 8.2, 0.2, 6.4, 2.6);
+        riverShape.bezierCurveTo(5.6, 3.7, 5.2, 4.7, 4.9, 5.45);
+        riverShape.lineTo(7.9, 5.45);
+        riverShape.bezierCurveTo(8.3, 4.1, 8.9, 2.2, 8.8, -0.5);
+        riverShape.bezierCurveTo(8.7, -2.8, 8.1, -4.1, 7.6, -4.8);
+        riverShape.closePath();
+
+        const riverGeo = new THREE.ShapeGeometry(riverShape, 24);
+        const riverMat = new THREE.MeshStandardMaterial({
+            color: 0x0284c7,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.25,
+            roughness: 0.15,
+            metalness: 0.3
+        });
+        const riverMesh = new THREE.Mesh(riverGeo, riverMat);
+        riverMesh.rotation.x = -Math.PI / 2;
+        riverMesh.position.set(0, plinthH + 0.025, 0);
+        riverMesh.receiveShadow = true;
+        maquetteGroup.add(riverMesh);
+
+        // Arched Wooden Footbridge across the River
+        const bridgeGroup = new THREE.Group();
+        bridgeGroup.position.set(6.75, plinthH + 0.08, 3.35);
+        bridgeGroup.rotation.y = -0.32;
+        maquetteGroup.add(bridgeGroup);
+
+        for (let b = -0.85; b <= 0.85; b += 0.14) {
+            const archY = Math.cos((b / 0.95) * (Math.PI / 2)) * 0.28;
+            const plank = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.04, 0.65), woodFenceMat);
+            plank.position.set(b, archY, 0);
+            plank.rotation.z = -Math.sin((b / 0.95) * (Math.PI / 2)) * 0.32;
+            plank.castShadow = true;
+            bridgeGroup.add(plank);
+        }
+
+        // Riverbank Rocks
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.9 });
+        const rockPositions = [
+            [5.8, 3.8], [6.1, 2.6], [7.6, 3.8], [7.9, 2.5], [8.3, 0.8], [6.9, 1.2], [5.4, 4.9], [7.5, 4.8]
+        ];
+        rockPositions.forEach(([rx, rz]) => {
+            const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 + Math.random() * 0.12, 0), rockMat);
+            rock.scale.set(1.2, 0.7, 1.0);
+            rock.position.set(rx, plinthH + 0.1, rz);
+            rock.castShadow = true;
+            maquetteGroup.add(rock);
+        });
+
+        // --- K. Lush Trees, Bushes & Saguaro Cacti ---
+        function createLeafyTree(x, z, scale = 1) {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.12 * scale, 0.2 * scale, 1.1 * scale, 8),
+                new THREE.MeshStandardMaterial({ color: 0x5c3618, roughness: 0.9 })
+            );
+            trunk.position.y = 0.55 * scale;
+            trunk.castShadow = true;
+            tree.add(trunk);
+
+            const foliageMat = new THREE.MeshStandardMaterial({ color: 0x228b22, roughness: 0.75 });
+            const puffs = [
+                [0, 1.35, 0, 0.75],
+                [-0.4, 1.15, 0.2, 0.55],
+                [0.42, 1.18, -0.15, 0.55],
+                [0.05, 1.2, 0.4, 0.52]
+            ];
+            puffs.forEach(([px, py, pz, pr]) => {
+                const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(pr * scale, 1), foliageMat);
+                crown.position.set(px * scale, py * scale, pz * scale);
+                crown.castShadow = true;
+                tree.add(crown);
+            });
+            tree.position.set(x, plinthH, z);
+            return tree;
+        }
+        maquetteGroup.add(createLeafyTree(6.2, -0.5, 1.0));
+        maquetteGroup.add(createLeafyTree(8.1, 0.4, 1.15));
+        maquetteGroup.add(createLeafyTree(4.3, -3.5, 1.35));
+
+        // Cacti on Front Plinth Corners & Backdrop
+        function createCactus(x, y, z, scale = 1) {
+            const cactus = new THREE.Group();
+            const cacMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.65 });
+            const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.14 * scale, 0.16 * scale, 1.3 * scale, 10), cacMat);
+            stem.position.y = 0.65 * scale;
+            stem.castShadow = true;
+            cactus.add(stem);
+
+            const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * scale, 0.1 * scale, 0.55 * scale, 8), cacMat);
+            armL.position.set(-0.24 * scale, 0.72 * scale, 0);
+            armL.rotation.z = 0.45;
+            cactus.add(armL);
+
+            const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * scale, 0.1 * scale, 0.5 * scale, 8), cacMat);
+            armR.position.set(0.24 * scale, 0.85 * scale, 0);
+            armR.rotation.z = -0.45;
+            cactus.add(armR);
+
+            cactus.position.set(x, y, z);
+            return cactus;
+        }
+        maquetteGroup.add(createCactus(-8.1, 0.15, 5.65, 0.95));
+        maquetteGroup.add(createCactus(8.1, 0.15, 5.65, 0.95));
+
+        // --- L. Miniature Wooden Field Signs ---
+        function createFieldSign(x, z, rotY, lines) {
+            const group = new THREE.Group();
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.08), woodFenceMat);
+            post.position.y = 0.45;
+            post.castShadow = true;
+            group.add(post);
+
+            const tex = createWoodenSignTexture(lines);
+            const board = new THREE.Mesh(
+                new THREE.BoxGeometry(1.45, 0.72, 0.06),
+                new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75 })
+            );
+            board.position.y = 0.85;
+            board.castShadow = true;
+            group.add(board);
+
+            group.position.set(x, plinthH, z);
+            group.rotation.y = rotY;
+            return group;
+        }
+
+        maquetteGroup.add(createFieldSign(-7.4, 2.3, 0.18, [
+            { text: 'Combate à Seca', y: 86, font: '800 42px "Plus Jakarta Sans", sans-serif' },
+            { text: 'com tecnologia', y: 145, font: '600 30px "Inter", sans-serif' },
+            { text: 'e preservação', y: 185, font: '600 30px "Inter", sans-serif' }
+        ]));
+
+        maquetteGroup.add(createFieldSign(-4.2, 4.1, 0.08, [
+            { text: 'Produção de', y: 98, font: '800 46px "Plus Jakarta Sans", sans-serif' },
+            { text: 'Alimentos', y: 162, font: '800 46px "Plus Jakarta Sans", sans-serif' }
+        ]));
+
+        maquetteGroup.add(createFieldSign(4.5, 3.1, -0.1, [
+            { text: 'Pecuária', y: 98, font: '800 46px "Plus Jakarta Sans", sans-serif' },
+            { text: 'Sustentável', y: 162, font: '800 46px "Plus Jakarta Sans", sans-serif' }
+        ]));
+
+        maquetteGroup.add(createFieldSign(7.9, 4.3, -0.18, [
+            { text: 'Preservação', y: 98, font: '800 44px "Plus Jakarta Sans", sans-serif' },
+            { text: 'dos Rios', y: 162, font: '800 44px "Plus Jakarta Sans", sans-serif' }
+        ]));
+
+        // Front Plinth Banner: "Um Sertão mais verde, justo e produtivo!"
+        const frontBannerTex = createWoodenSignTexture([
+            { text: 'Um Sertão mais verde, justo e produtivo!', y: 128, font: '800 40px "Plus Jakarta Sans", sans-serif' }
+        ], { width: 1024, height: 256, radius: 55 });
+
+        const frontBanner = new THREE.Mesh(
+            new THREE.BoxGeometry(9.6, 0.85, 0.12),
+            new THREE.MeshStandardMaterial({ map: frontBannerTex, roughness: 0.7 })
+        );
+        frontBanner.position.set(0, 0.72, plinthD / 2 + 0.08);
+        frontBanner.castShadow = true;
+        maquetteGroup.add(frontBanner);
+
+        // --- M. Scenic Backdrop Board ("Sertão Maranhense") & Stylized Sun ---
+        const backdropGroup = new THREE.Group();
+        backdropGroup.position.set(0, plinthH, -plinthD / 2 + 0.25);
+        maquetteGroup.add(backdropGroup);
+
+        // Sky-blue backdrop panel
+        const skyBoard = new THREE.Mesh(
+            new THREE.BoxGeometry(15.2, 4.2, 0.18),
+            new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.65 })
+        );
+        skyBoard.position.y = 2.1;
+        skyBoard.receiveShadow = true;
+        backdropGroup.add(skyBoard);
+
+        // Main Top Wooden Title Banner
+        const mainHeaderTex = createWoodenSignTexture([
+            { text: 'Sertão Maranhense', y: 96, font: '800 72px "Plus Jakarta Sans", sans-serif', color: '#140c04' },
+            { text: '“Inovação que Floresce no Semiárido”', y: 182, font: '700 40px "Inter", sans-serif', color: '#291808' }
+        ], { width: 1024, height: 256 });
+
+        const mainHeader = new THREE.Mesh(
+            new THREE.BoxGeometry(9.4, 2.05, 0.22),
+            new THREE.MeshStandardMaterial({ map: mainHeaderTex, roughness: 0.7 })
+        );
+        mainHeader.position.set(0, 4.55, 0.12);
+        mainHeader.castShadow = true;
+        backdropGroup.add(mainHeader);
+
+        // Sub-banner: "Desenvolvimento sustentável para todos"
+        const subHeaderTex = createWoodenSignTexture([
+            { text: 'Desenvolvimento sustentável para todos', y: 128, font: '800 42px "Plus Jakarta Sans", sans-serif' }
+        ], { width: 1024, height: 256, radius: 48 });
+
+        const subHeader = new THREE.Mesh(
+            new THREE.BoxGeometry(6.8, 0.65, 0.18),
+            new THREE.MeshStandardMaterial({ map: subHeaderTex, roughness: 0.7 })
+        );
+        subHeader.position.set(0, 3.22, 0.18);
+        backdropGroup.add(subHeader);
+
+        // Bright Stylized Sun on Top Right of Backdrop
+        const sunGroup = new THREE.Group();
+        sunGroup.position.set(5.4, 4.3, 0.22);
+        const sunMat = new THREE.MeshStandardMaterial({
+            color: 0xfacc15,
+            emissive: 0xf59e0b,
+            emissiveIntensity: 0.35,
+            roughness: 0.4
+        });
+        const sunCore = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.14, 28), sunMat);
+        sunCore.rotation.x = Math.PI / 2;
+        sunGroup.add(sunCore);
+
+        for (let r = 0; r < 14; r++) {
+            const ang = (r / 14) * Math.PI * 2;
+            const ray = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.65, 3), sunMat);
+            ray.position.set(Math.cos(ang) * 1.42, Math.sin(ang) * 1.42, 0);
+            ray.rotation.z = ang - Math.PI / 2;
+            sunGroup.add(ray);
+        }
+        backdropGroup.add(sunGroup);
+
+        // Backdrop Cactus on Top Left
+        backdropGroup.add(createCactus(-5.2, 3.3, 0.22, 1.35));
+
+        // --- N. Warm Glowing Miniature Fairy Lights along Paths & Perimeter ---
+        const fairyLightsGroup = new THREE.Group();
+        maquetteGroup.add(fairyLightsGroup);
+
+        const bulbGeo = new THREE.SphereGeometry(0.075, 8, 8);
+        const bulbMat = new THREE.MeshStandardMaterial({
+            color: 0xfffbeb,
+            emissive: 0xfbbf24,
+            emissiveIntensity: 2.2
+        });
+
+        const fairyCoords = [
+            // Road edges
+            [-0.75, 1.8], [-1.05, 3.0], [-1.45, 4.4],
+            [0.75, 1.8], [1.05, 3.0], [1.45, 4.4],
+            // Perimeter front edge
+            [-7.2, 5.2], [-5.2, 5.2], [-3.2, 5.2], [-1.8, 5.2],
+            [1.8, 5.2], [3.5, 5.2], [5.2, 5.2], [7.4, 5.2],
+            // Around dome & house
+            [-2.5, 0.9], [2.5, 0.9], [3.2, 0.2], [5.8, 0.2]
+        ];
+
+        const fairyBulbs = [];
+        fairyCoords.forEach(([fx, fz]) => {
+            const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+            bulb.position.set(fx, plinthH + 0.12, fz);
+            fairyLightsGroup.add(bulb);
+            fairyBulbs.push(bulb);
+        });
+
+        // =========================================================================
+        // 5. FLOATING 3D HOTSPOT PINS & CAMERA SMOOTH TRANSITIONS
+        // =========================================================================
+        const hotspotsLayer = document.getElementById('hotspots-layer');
+        const hotspotElements = {};
+        let pinsVisible = true;
+        let activeZoneId = null;
+
+        Object.values(ZONES_DATA).forEach(zone => {
+            const marker = document.createElement('div');
+            marker.className = 'hotspot-marker';
+            marker.dataset.zone = zone.id;
+            marker.innerHTML = `
+                <div class="hotspot-pulse"></div>
+                <div class="hotspot-btn">
+                    <span class="hotspot-num">${zone.num}</span>
+                    <span>${zone.label}</span>
+                </div>
+            `;
+            marker.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectZone(zone.id);
+            });
+            hotspotsLayer.appendChild(marker);
+            hotspotElements[zone.id] = marker;
+        });
+
+        // Smooth camera animation state
+        let isTransitioning = false;
+        const targetCamPos = new THREE.Vector3();
+        const targetControlsTarget = new THREE.Vector3();
+
+        function flyTo(pos, target) {
+            targetCamPos.copy(pos);
+            targetControlsTarget.copy(target);
+            isTransitioning = true;
+            autoRotate = false;
+            updateAutoRotateUI();
+        }
+
+        // Stop smooth transition if user manually interacts with OrbitControls
+        controls.addEventListener('start', () => {
+            isTransitioning = false;
+        });
+
+        // =========================================================================
+        // 6. UI INTERACTIONS (Detail Card, Lighting Mode, Presets, Modal)
+        // =========================================================================
+        const detailCard = document.getElementById('detail-card');
+        const detailBadge = document.getElementById('detail-badge');
+        const detailTitle = document.getElementById('detail-title');
+        const detailSubtitle = document.getElementById('detail-subtitle');
+        const detailDesc = document.getElementById('detail-description');
+        const detailBullets = document.getElementById('detail-bullets');
+
+        function selectZone(zoneId) {
+            const data = ZONES_DATA[zoneId];
+            if (!data) return;
+
+            activeZoneId = zoneId;
+
+            // Update active pin styles
+            Object.entries(hotspotElements).forEach(([id, el]) => {
+                el.classList.toggle('active', id === zoneId);
+            });
+
+            // Populate drawer
+            detailBadge.textContent = data.badge;
+            detailTitle.textContent = data.title;
+            detailSubtitle.textContent = data.subtitle;
+            detailDesc.textContent = data.description;
+            detailBullets.innerHTML = data.bullets.map(b => `
+                <li class="flex items-start gap-2">
+                    <span class="text-amber-400 font-bold mt-0.5">•</span>
+                    <span>${b}</span>
+                </li>
+            `).join('');
+
+            detailCard.classList.remove('translate-x-[120%]', 'opacity-0', 'pointer-events-none');
+            detailCard.classList.add('translate-x-0', 'opacity-100', 'pointer-events-auto');
+
+            flyTo(data.camPos, data.camTarget);
+        }
+
+        function closeDetailCard() {
+            activeZoneId = null;
+            Object.values(hotspotElements).forEach(el => el.classList.remove('active'));
+            detailCard.classList.add('translate-x-[120%]', 'opacity-0', 'pointer-events-none');
+            detailCard.classList.remove('translate-x-0', 'opacity-100', 'pointer-events-auto');
+        }
+
+        document.getElementById('btn-close-detail').addEventListener('click', closeDetailCard);
+        document.getElementById('btn-reset-view').addEventListener('click', () => {
+            closeDetailCard();
+            flyTo(CAMERA_PRESETS.overview.pos, CAMERA_PRESETS.overview.target);
+        });
+
+        // Camera Presets
+        document.querySelectorAll('.cam-preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.cam-preset-btn').forEach(b => {
+                    b.classList.remove('active', 'border-amber-400/60', 'bg-amber-500/20', 'text-amber-200');
+                    b.classList.add('text-slate-200');
+                });
+                btn.classList.add('active', 'border-amber-400/60', 'bg-amber-500/20', 'text-amber-200');
+                btn.classList.remove('text-slate-200');
+
+                const preset = CAMERA_PRESETS[btn.dataset.preset];
+                if (preset) {
+                    if (btn.dataset.preset === 'overview') closeDetailCard();
+                    flyTo(preset.pos, preset.target);
+                }
+            });
+        });
+
+        // Bottom 6 Pillars Interaction
+        document.querySelectorAll('.pillar-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetZone = PILLAR_MAP[btn.dataset.pillar];
+                if (targetZone) selectZone(targetZone);
+            });
+        });
+
+        // Day / Night Exhibition Lighting Toggle
+        let isNightMode = false;
+        const btnLighting = document.getElementById('btn-toggle-lighting');
+        const lightingLabel = document.getElementById('lighting-label');
+        const lightingIcon = document.getElementById('lighting-icon');
+
+        btnLighting.addEventListener('click', () => {
+            isNightMode = !isNightMode;
+            if (isNightMode) {
+                scene.background = new THREE.Color(0x070b14);
+                scene.fog.color.setHex(0x070b14);
+                hemiLight.intensity = 0.25;
+                dirLight.intensity = 0.22;
+                dirLight.color.setHex(0x93c5fd);
+                domeLight.intensity = 3.4;
+                houseLight.intensity = 2.0;
+                bulbMat.emissiveIntensity = 4.2;
+                lightingLabel.textContent = 'Modo Diurno (Exposição)';
+                lightingIcon.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>`;
+            } else {
+                scene.background = new THREE.Color(0x1b2230);
+                scene.fog.color.setHex(0x1b2230);
+                hemiLight.intensity = 0.85;
+                dirLight.intensity = 1.35;
+                dirLight.color.setHex(0xfff2dc);
+                domeLight.intensity = 1.6;
+                houseLight.intensity = 0.9;
+                bulbMat.emissiveIntensity = 2.2;
+                lightingLabel.textContent = 'Modo Noturno (LEDs)';
+                lightingIcon.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>`;
+            }
+        });
+
+        // Auto-Rotate Toggle
+        let autoRotate = false;
+        const btnAutoRotate = document.getElementById('btn-auto-rotate');
+        const rotateIcon = document.getElementById('rotate-icon');
+
+        function updateAutoRotateUI() {
+            controls.autoRotate = autoRotate;
+            controls.autoRotateSpeed = 0.85;
+            if (autoRotate) {
+                btnAutoRotate.classList.add('border-emerald-400/50', 'bg-emerald-500/20', 'text-emerald-200');
+                rotateIcon.classList.add('animate-spin');
+            } else {
+                btnAutoRotate.classList.remove('border-emerald-400/50', 'bg-emerald-500/20', 'text-emerald-200');
+                rotateIcon.classList.remove('animate-spin');
+            }
+        }
+
+        btnAutoRotate.addEventListener('click', () => {
+            autoRotate = !autoRotate;
+            isTransitioning = false;
+            updateAutoRotateUI();
+        });
+
+        // Toggle Pins Visibility
+        document.getElementById('btn-toggle-pins').addEventListener('click', () => {
+            pinsVisible = !pinsVisible;
+            hotspotsLayer.style.display = pinsVisible ? 'block' : 'none';
+        });
+
+        // Project Info Modal Controls
+        const projectModal = document.getElementById('project-modal');
+        document.getElementById('btn-project-info').addEventListener('click', () => {
+            projectModal.classList.remove('hidden');
+        });
+        document.getElementById('btn-close-modal').addEventListener('click', () => {
+            projectModal.classList.add('hidden');
+        });
+        document.getElementById('btn-explore-now').addEventListener('click', () => {
+            projectModal.classList.add('hidden');
+        });
+        projectModal.addEventListener('click', (e) => {
+            if (e.target === projectModal) projectModal.classList.add('hidden');
+        });
+
+        // =========================================================================
+        // 7. ANIMATION LOOP, HOTSPOT PROJECTION & RESIZE HANDLING
+        // =========================================================================
+        const clock = new THREE.Clock();
+        const tempVec = new THREE.Vector3();
+
+        function updateHotspots() {
+            if (!pinsVisible) return;
+            const halfW = window.innerWidth / 2;
+            const halfH = window.innerHeight / 2;
+
+            Object.values(ZONES_DATA).forEach(zone => {
+                const el = hotspotElements[zone.id];
+                if (!el) return;
+
+                tempVec.copy(zone.pinPos);
+                tempVec.project(camera);
+
+                // Check if behind camera
+                if (tempVec.z > 1) {
+                    el.classList.add('hidden-behind');
+                } else {
+                    el.classList.remove('hidden-behind');
+                }
+
+                const x = (tempVec.x * halfW) + halfW;
+                const y = -(tempVec.y * halfH) + halfH;
+                el.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const elapsed = clock.getElapsedTime();
+
+            // 1. Rotate Windmill Blades
+            rotorGroup.rotation.z += 0.025;
+
+            // 2. Subtle Water Shimmer Animation
+            riverMat.emissiveIntensity = 0.22 + Math.sin(elapsed * 2.5) * 0.08;
+
+            // 3. Gentle Fairy Lights Twinkle & Dome Glow
+            domeLight.intensity = (isNightMode ? 3.2 : 1.5) + Math.sin(elapsed * 3.0) * 0.25;
+
+            // 4. Smooth Camera Fly-To Transition
+            if (isTransitioning) {
+                camera.position.lerp(targetCamPos, 0.065);
+                controls.target.lerp(targetControlsTarget, 0.065);
+                if (camera.position.distanceTo(targetCamPos) < 0.05 && controls.target.distanceTo(targetControlsTarget) < 0.05) {
+                    isTransitioning = false;
+                }
+            }
+
+            controls.update();
+            updateHotspots();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        });
+
+        window.onload = function () {
+            animate();
+            const loader = document.getElementById('loading-screen');
+            setTimeout(() => {
+                loader.classList.add('opacity-0');
+                setTimeout(() => loader.remove(), 700);
+            }, 450);
+        };
+    </script>
+</body>
+</html>
